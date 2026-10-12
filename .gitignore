@@ -1,0 +1,25 @@
+# Secrets et clés
+*.key
+*.pem
+*.p12
+*.pfx
+*.ovpn
+*.psk
+.env
+secrets/
+
+# Exports OPNsense bruts (contiennent des secrets)
+config.xml
+config-*.xml
+
+# Disques et fichiers de VM
+*.vmdk
+*.vmx
+*.vmem
+*.iso
+*.nvram
+*.lck/
+
+# Divers
+.DS_Store
+Thumbs.db
