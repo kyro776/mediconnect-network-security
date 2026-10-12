@@ -1,10 +1,13 @@
-﻿## 2. Architecture et zones de sécurité
+## 2. Architecture et zones de sécurité
 
 ### 2.1 Choix architecturaux
 
-- **Un pare-feu par site**, chacun connecté à son propre accès Internet. Les deux sites sont reliés par un tunnel VPN IPsec site-à-site.
-- **Un pare-feu central au siège, doté d'une interface par zone de sécurité.** Tout flux entre deux zones traverse ce pare-feu : la politique est appliquée en un point unique et chaque flux peut être journalisé.
+L'architecture repose sur cinq décisions :
+
+- **Un pare-feu par site**, chacun connecté à son propre accès Internet, comme l'impose le sujet. Les deux sites sont reliés par un tunnel VPN IPsec site-à-site.
+- **Un pare-feu central au siège, doté d'une interface par zone de sécurité.** Tout flux entre deux zones traverse ce pare-feu, ce qui permet d'appliquer la politique de sécurité en un point unique et de journaliser chaque flux.
 - **Les VPN d'accès distant se terminent au siège**, là où se trouvent les serveurs. Les utilisateurs distants arrivent dans une zone dédiée et sont filtrés comme n'importe quel autre flux.
+- **Les services d'infrastructure (DNS et NTP) sont fournis par les pare-feu.** Chaque pare-feu sert de résolveur DNS et de source de temps pour les zones de son site (voir 2.4).
 - **Politique par défaut « tout interdit »** : seuls les flux explicitement nécessaires sont autorisés.
 
 ### 2.2 Zones de sécurité et niveaux de confiance
@@ -14,43 +17,63 @@
 | INTERNET | Patients, médecins, attaquants potentiels | 0 : non fiable |
 | DMZ | Reverse proxy, serveur web du portail | 1 : exposée |
 | DEMO | Copie simplifiée du portail, données fictives | 2 : isolée, jetable |
-| VPN-USERS | Télétravailleurs et commerciaux connectés par VPN | 2 à 3 : selon le groupe |
-| LAN-USERS | Postes des employés (siège et site secondaire) | 3 : interne |
+| VPN-USERS | Télétravailleurs et commerciaux connectés par VPN, un pool d'adresses par groupe | 2 à 3 : selon le groupe |
+| LAN-USERS | Postes des employés (siège et site secondaire), un VLAN par service | 3 : interne |
 | SERVEURS | Annuaire LDAP, base de données, CRM, comptabilité, support | 4 : sensible |
 | ADMIN | Bastion d'administration, serveur de journalisation | 5 : critique |
 
+Le niveau de confiance détermine le sens des flux. Un flux d'une zone peu fiable vers une zone plus fiable est interdit par défaut et n'est ouvert que de façon ciblée. Un flux vers une zone moins fiable est plus facile à autoriser.
+
+Les zones LAN-USERS et VPN-USERS sont subdivisées par service (VLAN sur le LAN, pool d'adresses pour le VPN, voir section 3). Le pare-feu peut ainsi appliquer des droits différents selon le service de l'utilisateur, et les mêmes droits qu'il soit au siège, au site secondaire ou en télétravail.
+
 ### 2.3 Justification des zones
 
-**DMZ.** Le portail doit être joignable depuis Internet, ce qui l'expose aux attaques. Il est placé dans une zone dédiée, séparée du réseau interne. Si la DMZ est compromise, l'attaquant n'a aucun accès direct aux serveurs internes.
+**DMZ.** Le portail doit être joignable depuis Internet, ce qui l'expose aux attaques. Il est donc placé dans une zone dédiée, séparée du réseau interne. Si la DMZ est compromise, l'attaquant ne dispose d'aucun accès direct aux serveurs internes. Le reverse proxy est le seul point d'entrée : il termine le HTTPS et relaie les requêtes vers le serveur web.
 
-**Base de données en zone SERVEURS.** Seul le serveur web peut l'interroger, sur un port unique et avec une connexion initiée depuis la DMZ.
+**Base de données en zone SERVEURS.** La base de données du portail n'est pas en DMZ. Seul le serveur web peut l'interroger, sur un port unique et avec une connexion initiée depuis la DMZ. Un attaquant qui prend le contrôle du serveur web n'obtient pas pour autant les données.
 
-**DEMO.** Les démonstrations n'utilisent jamais la production. La zone contient des données fictives et n'a aucun accès vers les autres zones internes.
+**DEMO.** Les démonstrations aux médecins n'utilisent jamais la production. La zone DEMO contient une copie simplifiée avec des données fictives : même en cas d'erreur de manipulation ou de compromission, aucune donnée réelle n'est exposée. Elle n'a aucun accès vers les autres zones internes.
 
-**VPN-USERS.** Les utilisateurs distants viennent de réseaux non maîtrisés. Leur zone est subdivisée en pools d'adresses par groupe, ce qui permet d'appliquer des règles selon leur identité.
+**VPN-USERS.** Les utilisateurs distants se connectent depuis des réseaux que l'entreprise ne maîtrise pas (domicile, cabinet médical). Leur zone est séparée du LAN et subdivisée en pools d'adresses par groupe, ce qui permet de leur appliquer des règles différentes selon leur identité.
 
-**LAN-USERS.** Les postes des employés sont des cibles privilégiées. Ils n'accèdent qu'aux serveurs nécessaires, jamais à l'administration.
+**LAN-USERS.** Les postes des employés ont une confiance moyenne à élevée, mais restent des cibles privilégiées (hameçonnage, logiciels malveillants). Le LAN est découpé en un VLAN par service : un poste compromis au support ne peut pas atteindre les serveurs comptables. Aucun VLAN utilisateur n'a accès à l'administration.
 
-**SERVEURS.** Cette zone concentre les données sensibles et n'est jamais joignable directement depuis Internet.
+**SERVEURS.** Cette zone concentre les données et les services sensibles. Elle n'est jamais joignable directement depuis Internet.
 
-**ADMIN.** Les flux d'administration sont isolés des flux utilisateurs. Le serveur de journalisation y est placé pour qu'un attaquant ayant compromis la DMZ ne puisse pas effacer les traces.
+**ADMIN.** Les flux d'administration sont isolés des flux utilisateurs : un utilisateur du LAN ne peut pas administrer les équipements. Le serveur de journalisation y est placé volontairement : si la DMZ est compromise, l'attaquant ne peut pas effacer les traces de son intrusion.
 
-### 2.4 Flux autorisés
+### 2.4 Services d'infrastructure : DNS et NTP
+
+Deux services sont indispensables au fonctionnement de l'architecture :
+
+- **NTP (synchronisation de l'heure).** L'authentification multifacteur des médecins repose sur des codes à usage unique (TOTP) valables 30 secondes : une horloge serveur décalée provoquerait des refus d'authentification. Une heure commune à tous les équipements est aussi nécessaire pour corréler les journaux des deux sites lors d'une analyse d'incident.
+- **DNS (résolution de noms).** Les certificats HTTPS reposent sur des noms de domaine (portail public et espace des médecins), et les postes comme les clients VPN doivent résoudre les noms des serveurs internes.
+
+Ces services sont assurés par les pare-feu eux-mêmes (résolveur DNS Unbound et service NTP intégrés à OPNsense), ce qui évite d'ajouter un serveur et d'ouvrir des flux supplémentaires. Chaque zone interroge uniquement la passerelle de son propre sous-réseau. Le pare-feu du siège se synchronise sur des serveurs NTP publics, et celui du site secondaire sur le siège, via le tunnel.
+
+La DMZ et la zone DEMO ne peuvent pas résoudre les noms internes, ce qui limite les informations disponibles pour un attaquant qui les compromettrait.
+
+### 2.5 Flux autorisés
 
 | Source | Destination | Autorisé | Justification |
 |---|---|---|---|
 | INTERNET | DMZ | HTTPS (443) vers le reverse proxy uniquement | Seul service public |
-| INTERNET | Autres zones | Interdit | Aucune confiance |
+| INTERNET | Toutes les autres zones | Interdit | Aucune confiance |
 | DMZ | SERVEURS | Serveur web vers base de données, port dédié | Fonctionnement du portail |
-| DMZ | LAN, ADMIN, DEMO | Interdit | Limiter la propagation |
+| DMZ | LAN, ADMIN, DEMO | Interdit | Limiter la propagation d'une compromission |
 | DEMO | Zones internes | Interdit | Zone isolée et jetable |
-| VPN-USERS | SERVEURS, DEMO | Selon le pool (groupe) | Moindre privilège |
-| LAN-USERS | SERVEURS | Selon le profil | Moindre privilège |
+| VPN-USERS | SERVEURS, DEMO | Selon le pool (groupe) de l'utilisateur | Moindre privilège |
+| LAN-USERS | SERVEURS | Selon le VLAN du service | Moindre privilège |
 | LAN-USERS | ADMIN | Interdit | Séparation de l'administration |
 | ADMIN | Toutes les zones | Protocoles d'administration depuis le bastion | Administration sécurisée |
 | Toutes les zones | Serveur de logs | Syslog uniquement | Journalisation centralisée |
-| Site secondaire | Siège | Via le tunnel IPsec, selon le profil | Interconnexion sécurisée |
+| Toutes les zones | Leur passerelle | DNS (53) et NTP (123) | Services d'infrastructure |
+| Site secondaire | Siège | Via le tunnel IPsec, selon le VLAN du service | Interconnexion sécurisée |
 
-### 2.5 Schéma d'architecture
+Le détail des règles est présenté dans la section consacrée à la politique de filtrage.
+
+### 2.6 Schéma d'architecture
 
 ![Architecture](architecture.png)
+
+*Architecture globale de MediConnect : zones de sécurité, pare-feu et interconnexion des sites.*

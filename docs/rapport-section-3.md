@@ -84,7 +84,21 @@ Les adresses WAN appartiennent à une plage réservée à la documentation, jama
 
 Conventions : `.1` est la passerelle (le pare-feu), les serveurs ont des adresses fixes à partir de `.10`, et les postes utilisateurs reçoivent une adresse par DHCP de `.100` à `.200`, ce qui évite les collisions avec les serveurs.
 
-### 3.7 Limites du plan
+### 3.7 DNS et NTP
+
+La passerelle `.1` de chaque sous-réseau joue aussi le rôle de serveur DNS et NTP pour ce sous-réseau. Le DHCP distribue automatiquement ces adresses aux postes. Les serveurs à adresse fixe sont configurés avec la même valeur.
+
+| Élément | DNS et NTP utilisés |
+|---|---|
+| Postes et serveurs d'une zone du siège | Passerelle de la zone (ex. `10.1.30.1` pour SERVEURS) |
+| Postes du site secondaire | Passerelle de leur VLAN (ex. `10.2.41.1`) |
+| Clients VPN | Passerelle de leur pool, poussée par le serveur OpenVPN |
+| Pare-feu du siège | Serveurs NTP publics |
+| Pare-feu du site secondaire | Pare-feu du siège, via le tunnel (`10.255.0.1`) |
+
+Une zone interne de noms (par exemple `mediconnect.local`) permet de nommer les serveurs internes (`ldap`, `crm`, `logs`). Elle n'est pas résolue depuis la DMZ ni depuis la zone DEMO.
+
+### 3.8 Limites du plan
 
 - Le plan `10.x.x.x` peut entrer en conflit avec un réseau distant utilisant la même plage (cabinet médical, autre entreprise), rare mais possible pour un utilisateur nomade.
 - L'identité est déduite de l'adresse IP : si un utilisateur parvenait à changer d'adresse sur le LAN, il changerait de droits. Le risque est limité par le fait que chaque VLAN est un réseau séparé, et qu'en production on ajouterait une authentification des postes sur les ports réseau (802.1X).
