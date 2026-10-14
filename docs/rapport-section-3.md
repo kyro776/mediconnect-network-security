@@ -7,7 +7,7 @@
 3. **Une structure lisible : `10.<site>.<zone>.0/24`.** Le deuxième octet identifie le site (1 siège, 2 site secondaire, 8 VPN d'accès distant) et le troisième identifie la zone ou le service. Une adresse suffit à savoir où se trouve une machine et à quel service elle appartient.
 4. **Des blocs agrégables.** Les sous-réseaux des services d'un même site sont regroupés dans un bloc `/21` (`10.1.40.0/21` au siège, `10.2.40.0/21` au site secondaire). Une seule règle peut ainsi viser tout le LAN d'un site, par exemple pour lui interdire l'accès à la zone ADMIN.
 5. **Aucun chevauchement** entre les sites, les zones et les pools VPN, sinon le routage et les tunnels IPsec ne fonctionnent pas.
-6. **Des masques `/24`** pour chaque sous-réseau : 254 hôtes, largement suffisant, et lecture simplifiée.
+6. **Des masques `/24`** pour chaque sous-réseau de zone ou de service : 254 hôtes, largement suffisant, et lecture simplifiée. Seul le lien du tunnel, qui n'a besoin que de deux adresses, est en `/30` (voir 3.5).
 
 ### 3.2 Zones du siège
 
@@ -33,7 +33,7 @@ Le LAN de chaque site est découpé en VLAN, un par service. Le numéro de VLAN 
 
 La passerelle de chaque VLAN est l'adresse `.1` (par exemple `10.1.41.1` pour le support du siège). Le site secondaire n'accueille que les services décrits par le sujet : employés, support et commerciaux.
 
-Les administrateurs n'ont pas de VLAN utilisateur : ils travaillent depuis la zone ADMIN (`10.1.99.0/24`) ou depuis leur pool VPN dédié, conformément à l'exigence de séparation des flux d'administration.
+Les administrateurs n'ont pas de VLAN utilisateur : ils travaillent depuis la zone ADMIN (`10.1.99.0/24`) ou depuis leur pool VPN dédié, conformément à l'exigence de séparation des flux d'administration. C'est pourquoi le VLAN 45 n'est pas utilisé, alors que le pool VPN correspondant (`10.8.50.0/24`) existe.
 
 Cette segmentation permet d'appliquer les mêmes droits à un utilisateur qu'il soit au bureau ou en télétravail : un commercial n'atteint que le CRM et la zone DEMO, qu'il soit dans `10.1.46.0/24`, `10.2.46.0/24` ou `10.8.60.0/24`.
 
@@ -81,6 +81,11 @@ Les adresses WAN appartiennent à une plage réservée à la documentation, jama
 | Serveur support | `10.1.30.50` | SERVEURS |
 | Bastion d'administration | `10.1.99.10` | ADMIN |
 | Serveur de journalisation | `10.1.99.20` | ADMIN |
+| Poste d'administration (poste hôte de la maquette) | `10.1.99.50` | ADMIN |
+| Pare-feu du site secondaire, interface d'administration | `10.2.99.1` | ADMIN du site secondaire |
+| Poste d'administration, côté site secondaire | `10.2.99.50` | ADMIN du site secondaire |
+
+Le réseau `10.2.99.0/24` est un réseau d'administration dédié au pare-feu du site secondaire, suivant la même convention `10.<site>.99.0/24` que la zone ADMIN du siège. Il a permis de configurer ce pare-feu avant que le tunnel IPsec n'existe.
 
 Conventions : `.1` est la passerelle (le pare-feu), les serveurs ont des adresses fixes à partir de `.10`, et les postes utilisateurs reçoivent une adresse par DHCP de `.100` à `.200`, ce qui évite les collisions avec les serveurs.
 
@@ -104,3 +109,4 @@ Une zone interne de noms (par exemple `mediconnect.local`) permet de nommer les 
 - L'identité est déduite de l'adresse IP : si un utilisateur parvenait à changer d'adresse sur le LAN, il changerait de droits. Le risque est limité par le fait que chaque VLAN est un réseau séparé, et qu'en production on ajouterait une authentification des postes sur les ports réseau (802.1X).
 - Dans la maquette, tous les VLAN et tous les groupes VPN ne sont pas montés : seuls ceux nécessaires à la démonstration le sont.
 - Le segment WAN unique simule Internet sans reproduire deux opérateurs distincts.
+- Le segment WAN de la maquette n'a pas d'accès réel à Internet : le pare-feu du siège ne peut pas joindre de serveurs NTP publics. Il sert donc lui-même de référence de temps (mode « orphelin » du service NTP d'OPNsense). Toute la maquette reste à la même heure, ce qui suffit pour le TOTP et la corrélation des journaux, mais cette heure n'est pas garantie exacte.

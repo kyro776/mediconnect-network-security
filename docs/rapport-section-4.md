@@ -40,7 +40,9 @@ OPNsense est installé sur le disque virtuel à partir de l'image d'installation
 
 ### 4.5 Affectation des interfaces et adressage
 
-Chaque carte réseau est affectée à un rôle, puis reçoit l'adresse de passerelle prévue par le plan d'adressage (section 3).
+Chaque carte réseau est affectée à un rôle, puis reçoit l'adresse de passerelle prévue par le plan d'adressage (section 3). La correspondance entre les cartes virtuelles et les interfaces d'OPNsense a été vérifiée en comparant leurs adresses MAC : une inversion aurait branché une zone sur le mauvais segment.
+
+Après l'assistant de configuration initial, l'interface WAN a été contrôlée : l'assistant l'avait repassée en DHCP, et son adresse fixe `203.0.113.2/24` a dû être rétablie (voir 5.7).
 
 | Rôle | Carte | Description | Adresse |
 |---|---|---|---|
