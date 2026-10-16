@@ -49,7 +49,7 @@ Deux services sont indispensables au fonctionnement de l'architecture :
 - **NTP (synchronisation de l'heure).** L'authentification multifacteur des médecins repose sur des codes à usage unique (TOTP) valables 30 secondes : une horloge serveur décalée provoquerait des refus d'authentification. Une heure commune à tous les équipements est aussi nécessaire pour corréler les journaux des deux sites lors d'une analyse d'incident.
 - **DNS (résolution de noms).** Les certificats HTTPS reposent sur des noms de domaine (portail public et espace des médecins), et les postes comme les clients VPN doivent résoudre les noms des serveurs internes.
 
-Ces services sont assurés par les pare-feu eux-mêmes (résolveur DNS Unbound et service NTP intégrés à OPNsense), ce qui évite d'ajouter un serveur et d'ouvrir des flux supplémentaires. Chaque zone interroge uniquement la passerelle de son propre sous-réseau. Le pare-feu du siège se synchronise sur des serveurs NTP publics, et celui du site secondaire sur le siège, via le tunnel.
+Ces services sont assurés par les pare-feu eux-mêmes (résolveur DNS Unbound et service NTP intégrés à OPNsense), ce qui évite d'ajouter un serveur et d'ouvrir des flux supplémentaires. Chaque zone interroge uniquement la passerelle de son propre sous-réseau. Le pare-feu du siège se synchronise sur des serveurs NTP publics (dans la maquette, sans Internet réel, il sert lui-même de référence, voir 3.8), et celui du site secondaire sur le siège, via le tunnel.
 
 La DMZ et la zone DEMO ne peuvent pas résoudre les noms internes, ce qui limite les informations disponibles pour un attaquant qui les compromettrait.
 
@@ -57,18 +57,26 @@ La DMZ et la zone DEMO ne peuvent pas résoudre les noms internes, ce qui limite
 
 | Source | Destination | Autorisé | Justification |
 |---|---|---|---|
-| INTERNET | DMZ | HTTPS (443) vers le reverse proxy uniquement | Seul service public |
+| INTERNET | DMZ | HTTPS (443) vers le reverse proxy (`10.1.10.10`) uniquement | Seul service public |
+| INTERNET | Pare-feu du siège (WAN) | OpenVPN (UDP, un port par instance) | Accès distant, authentifié avant tout accès interne |
+| Pare-feu du site secondaire | Pare-feu du siège (WAN) | IPsec (UDP 500, UDP 4500, ESP), depuis la seule adresse `203.0.113.3` | Établissement du tunnel site-à-site |
 | INTERNET | Toutes les autres zones | Interdit | Aucune confiance |
-| DMZ | SERVEURS | Serveur web vers base de données, port dédié | Fonctionnement du portail |
-| DMZ | LAN, ADMIN, DEMO | Interdit | Limiter la propagation d'une compromission |
-| DEMO | Zones internes | Interdit | Zone isolée et jetable |
+| DMZ | SERVEURS | Serveur web (`10.1.10.20`) vers base de données (`10.1.30.20`), TCP 5432 (PostgreSQL) uniquement | Fonctionnement du portail |
+| DMZ | ADMIN | Syslog vers le serveur de logs (`10.1.99.20`) uniquement | Journalisation, sans accès à l'administration |
+| DMZ | LAN, DEMO, autres flux vers ADMIN | Interdit | Limiter la propagation d'une compromission |
+| DEMO | Toutes les autres zones | Interdit (ses flux sont journalisés par le pare-feu) | Zone isolée et jetable |
 | VPN-USERS | SERVEURS, DEMO | Selon le pool (groupe) de l'utilisateur | Moindre privilège |
 | LAN-USERS | SERVEURS | Selon le VLAN du service | Moindre privilège |
-| LAN-USERS | ADMIN | Interdit | Séparation de l'administration |
+| LAN-USERS, VPN-USERS (hors administrateurs) | ADMIN | Interdit | Séparation de l'administration |
 | ADMIN | Toutes les zones | Protocoles d'administration depuis le bastion | Administration sécurisée |
-| Toutes les zones | Serveur de logs | Syslog uniquement | Journalisation centralisée |
+| SERVEURS, pare-feu | Serveur de logs | Syslog uniquement | Journalisation centralisée |
 | Toutes les zones | Leur passerelle | DNS (53) et NTP (123) | Services d'infrastructure |
+| Pare-feu du siège | Annuaire LDAP (`10.1.30.10`) | LDAPS (636) uniquement, avec un compte en lecture seule | Authentification des utilisateurs VPN |
 | Site secondaire | Siège | Via le tunnel IPsec, selon le VLAN du service | Interconnexion sécurisée |
+
+Le flux de journalisation depuis la DMZ est la seule exception à l'interdiction DMZ → ADMIN : il est limité à un protocole et à une machine, et le serveur de logs ne fait que recevoir.
+
+Le reverse proxy et le serveur web sont dans le même sous-réseau : leurs échanges ne traversent pas le pare-feu. Ce risque est accepté pour la maquette ; en production, on placerait le serveur web dans un second segment de DMZ.
 
 Le détail des règles est présenté dans la section consacrée à la politique de filtrage.
 
