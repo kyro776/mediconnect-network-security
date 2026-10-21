@@ -1,0 +1,18 @@
+[Unit]
+Description=Portail MediConnect
+After=network-online.target
+
+[Service]
+User=portail
+Group=portail
+WorkingDirectory=/opt/portail
+EnvironmentFile=/etc/portail.env
+ExecStart=/opt/portail/venv/bin/gunicorn --workers 2 --bind 10.1.10.20:8000 app:app
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
